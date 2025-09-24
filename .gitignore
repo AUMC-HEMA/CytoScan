@@ -1,0 +1,8 @@
+/data/
+/doc/
+/Meta/
+*.Rhistory
+.Rproj.user/
+CytoScan.Rproj
+*.fcs
+docs

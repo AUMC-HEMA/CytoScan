@@ -1,0 +1,442 @@
+---
+title: "CytoScan: automated flagging of technical anomalies for cytometry
+quality control"
+author:
+- name: Tim R. Mocking
+  affiliation: Amsterdam UMC
+- name: Felix Zwolle
+  affiliation: Amsterdam UMC
+- name: Yejin Park
+  affiliation: Amsterdam UMC
+- name: Angele Kelder
+  affiliation: Amsterdam UMC
+- name: Yvan Saeys
+  affiliation: VIB Ghent
+- name: Jacqueline Cloos
+  affiliation: Amsterdam UMC
+- name: Sofie van Gassen
+  affiliation: VIB Ghent
+- name: Costa Bachas
+  affiliation: Amsterdam UMC
+package: CytoScan
+output:
+  # BiocStyle::pdf_document
+  BiocStyle::html_document
+abstract: |
+  Studies evaluating cellular phenotypes by cytometry techniques are increasingly facing analytical challenges due to the multitudes of samples and parameters that are evaluated concurrently. However, spurious technical effects resulting from a lack of standardization can affect marker distributions and complicate multi-sample analyses. To identify such effects we present CytoScan, an R package that evaluates inter-measurement variation in cytometry datasets and allows for flagging anomalous measurements after data acquisition. CytoScan can detect two types of anomalies: files with limited similarity to others within a dataset (outliers) and  files with limited similarity to previously acquired high-quality reference data (novelties). CytoScan can be applied to large cytometry datasets on consumer-grade hardware with informative visualizations, providing accessible quality-control for more reliable analyses.
+vignette: |
+  %\VignetteIndexEntry{Vignette Title}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+# Installation
+
+CytoScan is currently only available from Github with the devtools package.
+
+```{r, eval=FALSE}
+# Install devtools if needed
+if (!requireNamespace("devtools", quietly = TRUE)) {
+  install.packages("devtools")
+}
+
+devtools::install_github("AUMC-HEMA/CytoScan")
+```
+
+```{r}
+# Check if the installation worked
+library(CytoScan)
+```
+
+# Setting up a CytoScan workflow
+
+The CytoScan package contains a function "generateDemo". That generates a folder 
+containing a small set of FCS files which will be used throughout this tutorial.
+
+## Loading demo data
+
+```{r}
+# Create a folder "demo_data" containing 100 small FCS files for demonstration
+# Each file contains 1000 events with 8 channels
+generateDemo(dir = "demo_data", nFiles = 100, nCells = 1000, nChannels = 8)
+
+# List the generated files
+files <- list.files("demo_data", full.names = TRUE)
+head(files, 3) # Show the names of the first 3 files
+```
+
+## Initializing a CytoScan object
+
+The first step in the workflow is creating a CytoScan object.
+This object stores all relevant information, from metadata, to file paths to 
+generated features and outputs.
+
+```{r}
+CS <- CytoScan()
+```
+
+This "empty" object contains almost nothing at this point. It contains a function
+that defines the way will pre-process each FCS file and some variables
+to make this work with parallel processing. Modifying this is more advanced
+and will discussed later in this tutorial.
+
+Let's continue with adding some data.
+
+## Adding data to a CytoScan object
+
+### Adding FCS data
+
+Every workflow depends on a set of "test" files. These are the files you want
+to evaluate for potential anomalies. 
+
+```{r}
+CS <- CytoScan() # Intialize empty object
+files <- list.files("demo_data", full.names = TRUE) # Get file paths
+CS <- addTestdata(CS, files) # Add file paths to object
+```
+
+If you want to perform novelty detection, you have to define reference data as
+well. In this case, models will be trained on the reference data, before identifying
+novelties in the test data. 
+
+```{r}
+CS <- CytoScan() # Intialize empty object
+files <- list.files("demo_data", full.names = TRUE) # Get file paths
+CS <- addReferencedata(CS, files[1:50]) # Add first 50 files as "test"
+CS <- addTestdata(CS, files[51:100]) # Add last 50 files as "reference"
+```
+
+### Adding metadata
+
+You might also want to apply known experimental conditions such as the cytometer
+that was used or lot IDs. In the current version, we support adding one categorical
+label per file. You can add this to the object with the add label functions.
+
+```{r}
+# Generate some random batches
+refLabels <- sample(c("batch1", "batch2"), 50, replace = TRUE)
+testLabels <- sample(c("batch1", "batch2"), 50, replace = TRUE)
+head(refLabels)
+```
+
+```{r}
+# Add them to the CytoScan object
+CS <- addReferencelabels(CS, refLabels)
+CS <- addTestlabels(CS, testLabels)
+```
+
+### Inspecting the CytoScan object
+
+Let's inspect what the CytoScan object now looks like. We have different slots:
+
+```{r}
+print(names(CS))
+```
+
+You can see we know have added slots for "paths" and "labels" that we added
+with the add data and add label functions.
+
+These paths are subdivided into test and reference categories:
+
+```{r}
+print(names(CS$paths))
+```
+
+Inspecting these slots will reveal your input data. Note that we have not
+loaded any of the data yet. We just have made a structure for data loading
+that will be used later.
+
+```{r}
+print((CS$paths$test))
+```
+
+## Feature generation
+
+Before we can continue with visualizations and anomaly detection, we have to generate
+some features. 
+
+We recommend quantile-based features.
+
+Note that you will have to supply the channel names in the function. If these
+do not match across files, the function will return an error.
+
+### General example
+
+```{r}
+CS <- CytoScan()
+files <- list.files("demo_data", full.names = TRUE)
+CS <- addTestdata(CS, files)
+
+channels <- LETTERS[1:8] # The channel names of demo_data are A-H
+CS <- generateFeatures(CS, channels = channels, featMethod = "quantiles")
+head(CS$features$test$quantiles)
+```
+
+Note that by default, the function will use 50% of your cores for parallel processing.
+However, this is only really necessary for larger datasets. You can disable
+parallel processing with the "parallel" argument. You can also define the number
+of cores with "cores".
+
+If you run generateFeatures again, CytoScan will not do anything. This is
+because it automatically detects if all the files have generated features.
+If you want to run the function again, you can force it with "recalculate".
+
+```{r, eval=FALSE}
+# This will not do anything... (assuming you already generated quantile features)
+CS <- generateFeatures(CS, channels = channels, featMethod = "quantiles")
+
+# Force CytoScan to recalculate features for previous supplied files
+CS <- generateFeatures(CS, channels = channels, featMethod = "quantiles",
+                       recalculate=TRUE)
+```
+
+This also means that you can add additional test and reference files and generate
+features **just** for these new files. This makes the workflow a lot more flexible.
+
+```{r, eval=FALSE}
+CS <- CytoScan()
+CS <- addTestdata(CS, files[0:50])
+channels <- LETTERS[1:8]
+
+# Generate features for the first 50 files
+CS <- generateFeatures(CS, channels = channels, featMethod = "quantiles")
+print(nrow(CS$features$test$quantiles))
+
+# Now add the other 50 files
+CS <- addTestdata(CS, files[51:100])
+CS <- generateFeatures(CS, channels = channels, featMethod = "quantiles")
+print(nrow(CS$features$test$quantiles))
+``` 
+
+### Generating features for novelty detection
+
+If you want to perform novelty detection, you have to generate features from
+the reference cohort. In this example, we use the earth mover's distance (EMD) 
+for feature generation. Because these distances are calculated based on an aggregated
+set of cells, it is important to use cells from the reference cohort.
+
+If reference data is present, this is automatically used for aggregation.
+
+```{r, eval=FALSE}
+CS <- CytoScan()
+CS <- addTestdata(CS, files[1:50])
+CS <- addReferencedata(CS, files[51:100])
+CS <- generateFeatures(CS, channels = channels, featMethod = "EMD")
+```
+
+# Visualizations
+
+Let's make some visualizations.  
+
+```{r}
+# General set-up with some test and reference data
+CS <- CytoScan() 
+CS <- addTestdata(CS, files[1:50])
+CS <- addReferencedata(CS, files[51:100])
+CS <- generateFeatures(CS, channels = channels, featMethod = "quantiles")
+```
+
+## Principal component analysis (PCA)
+
+Plotting the principal components is one of the easiest ways to visualize
+the patterns in your dataset. The "plotPCA" function is quite versatile. It has 
+three mandatory arguments:
+
+* featMethod
+* fitData
+* plotData
+
+featMethod defines which features to plot. This is to deal with situations where
+you generated features for both quantiles and EMD.
+
+fitData defines which data source to use for calculating the PCs. This allows you
+to "project" data from test samples in a reference set PCA, etc.
+
+plotData defines which data to plot. This allows you to plot only test or reference,
+or all samples.
+
+```{r}
+# Plot a PCA for only the test samples
+plotPCA(CS, featMethod = "quantiles", fitData = "test", plotData = "test")
+```
+
+```{r}
+# Also plot the reference samples
+plotPCA(CS, featMethod = "quantiles", fitData = "test", plotData = "all")
+```
+
+You can also define the PCs you want to plot on the x and y-axes. Here,
+we change it to PC3 and 4.
+
+```{r}
+# Plot PC3 vs. PC4
+plotPCA(CS, featMethod = "quantiles", fitData = "test", plotData = "all", PCx = 3, PCy = 4)
+```
+
+Sometimes, you are interested in which features influence the orientation of the 
+PCA plot. You can evaluate this with two ways.
+
+The first method is to plot the loadings within the plot. This can be set-up with
+"plotArrows". However, as we have many features, it sometimes makes sense to only
+plot the first couple of important ones ("nLoadings").
+
+```{r}
+# Plot the direction of the most influential feature
+plotPCA(CS, featMethod = "quantiles", fitData = "test", plotData = "all",
+        plotArrows = TRUE, nLoadings = 1)
+```
+You can also create a barplot alongside the x and y-axis to show which features
+influence the PCs plotted on the x and y axis.
+
+```{r}
+plotPCA(CS, featMethod = "quantiles", fitData = "test", plotData = "all",
+        plotBars = TRUE, nLoadings = 10)
+```
+
+Lastly, we can control the shape and color used by the plot. We will add some
+experimental conditions and color those, while retaining the distinction between
+test and reference by shape.
+
+```{r}
+refLabels <- sample(c("batch1", "batch2"), 50, replace = TRUE)
+testLabels <- sample(c("batch1", "batch2"), 50, replace = TRUE)
+CS <- addReferencelabels(CS, refLabels)
+CS <- addTestlabels(CS, testLabels)
+```
+
+```{r}
+plotPCA(CS, featMethod = "quantiles", fitData = "test", plotData = "all",
+        color = "labels")
+```
+
+### Advanced customization of PCA plots
+
+The lay-out and colors of the plot might not be "publication ready". However,
+because the plot function returns a ggplot object, you can modify according to
+your own desire.
+
+```{r}
+p <- plotPCA(CS, featMethod = "quantiles", fitData = "test", plotData = "all",
+             color = "labels")
+
+# Modify ggplot settings
+library(ggplot2)
+p <- p + 
+  scale_color_manual(values = c("batch1" = "red", "batch2" = "blue"))
+plot(p)
+```
+
+## Heatmaps
+
+You can also plot the featurers in a heatmap. We use the ComplexHeatmap package.
+
+```{r}
+plotHeatmap(CS, featMethod = "quantiles", plotData = "test")
+```
+
+## Boxplots
+
+You can also plot specific channel distributions.
+
+Here, we plot the expression of the hypothetical marker "A". You can see, that 
+for plotting all files, the plot becomes crowded very fast.
+
+```{r}
+plotBoxplot(CS, plotData = "all", channel = "A")
+```
+Therefore, you can also decide to plot only random subset of the files for larger
+datasets.
+
+```{r}
+plotBoxplot(CS, plotData = "all", channel = "A", nFiles = 30)
+```
+
+You can also highlight the source of the data. As you can see here, the files
+are sorted from median low to high, and the two subsets are quite well mixed.
+
+```{r}
+plotBoxplot(CS, plotData = "all", channel = "A", nFiles = 30, color = "input")
+```
+
+# Flagging anomalies
+
+Now let's figure out if we have any anomalies. For this, we use the "Flag" function.
+
+You always need to define based on which feature set you want to flag anomalies.
+
+### Flagging anomalies using outlier detection
+
+```{r}
+CS <- CytoScan() 
+CS <- addTestdata(CS, files[0:50])
+CS <- addReferencedata(CS, files[51:100])
+CS <- generateFeatures(CS, channels = channels, featMethod = "quantiles")
+
+# Flag outliers
+# Note: we slightly modified the cut-off due to the unrealistic simulated setting
+CS <- Flag(CS, featMethod = "quantiles", flagMethod = "outlier", 
+           outlier_threshold = 0.52)
+```
+
+You can identify the outliers in the CytoScan object.
+
+```{r}
+head(CS$outliers$quantiles)
+```
+
+### Flagging anomalies using novelty detection
+
+```{r}
+CS <- Flag(CS, featMethod = "quantiles", flagMethod = "novelty")
+```
+
+### Visualizing flagged files
+
+Show the outliers.
+
+```{r}
+plotPCA(CS, featMethod = "quantiles", fitData = "test", plotData = "test",
+        color = "outlier")
+```
+
+Show the novelties:
+
+```{r}
+plotPCA(CS, featMethod = "quantiles", fitData = "reference", plotData = "all",
+        color = "novelty")
+```
+
+# Custom pre-processing
+
+By default, CytoScan uses the same pre-processing function for all loaded 
+flowframes. 
+
+You can modify this by supplying your own pre-processing function, for example
+by only performing a MinMax normalization.
+
+```{r}
+CS <- CytoScan()
+
+# Define a custom function which also scales expression values from 0 to 1
+MinMax <- function(ff){
+  spill <- ff@description$SPILL
+  ff <- flowCore::compensate(ff, spill)
+  ff <- flowCore::transform(ff, flowCore::transformList(colnames(spill), 
+                                            flowCore::arcsinhTransform(a = 0, 
+                                                                       b = 1/150, 
+                                                                       c = 0)))
+  ff@exprs[, colnames(spill)] <- apply(ff@exprs[, colnames(spill)], 2, function(x){
+    return((x - quantile(x, 0.01)) / (quantile(x, 0.99) - quantile(x, 0.01)))
+  })
+  return(ff)
+}
+
+# Replace the default pre-processing
+CS$preprocessFunction <- MinMax
+
+# Read some data
+CS <- addTestdata(CS, files[1], read = TRUE, aggSize = 1000)
+
+# Plot a histogram of the first marker
+hist(CS$data$test[[files[1]]][, 1], main = files[1], xlab = "Scaled expression")
+```
