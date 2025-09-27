@@ -32,6 +32,8 @@ install.packages(c(
 BiocManager::install(c("ComplexHeatmap", "flowCore", "flowFP"))
 ```
 
+Proceed with installation of CytoScan.
+
 ```r
 # Install devtools if needed
 if (!requireNamespace("devtools", quietly = TRUE)) {
@@ -41,4 +43,4 @@ if (!requireNamespace("devtools", quietly = TRUE)) {
 devtools::install_github("AUMC-HEMA/CytoScan")
 ```
 
-After installation, we refer to the documentation for further use.
+After installation, we refer to the [documentation](https://AUMC-HEMA.github.io/CytoScan) for further use.
