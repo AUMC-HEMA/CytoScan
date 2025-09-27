@@ -16,6 +16,22 @@ Novelties are files that are defined as anomalies with respect to another datase
 
 You can install `CytoScan` directly from Github using the `devtools` library in R. 
 
+First, make your you have all dependencies installed.
+```r
+# Install BiocManager if needed
+if (!requireNamespace("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+
+# CRAN packages
+install.packages(c(
+  "doParallel", "dplyr", "foreach", "ggplot2", "ggrepel",
+  "ggridges", "gridExtra", "isotree", "mclust", "scales", "transport"
+))
+
+# Bioconductor packages
+BiocManager::install(c("ComplexHeatmap", "flowCore", "flowFP"))
+```
+
 ```r
 # Install devtools if needed
 if (!requireNamespace("devtools", quietly = TRUE)) {
