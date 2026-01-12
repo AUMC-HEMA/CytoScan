@@ -4,7 +4,7 @@
 \alias{plotHeatmap}
 \title{Plot heatmap}
 \usage{
-plotHeatmap(CS, featMethod, plotData)
+plotHeatmap(CS, featMethod, plotData = "test")
 }
 \arguments{
 \item{CS}{CytoScan object}

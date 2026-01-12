@@ -33,6 +33,6 @@ VignetteBuilder:
     knitr
 Encoding: UTF-8
 LazyData: true
-RoxygenNote: 7.3.2
+RoxygenNote: 7.3.3
 URL: https://AUMC-HEMA.github.io/CytoScan, https://github.com/AUMC-HEMA/CytoScan
 BugReports: https://github.com/AUMC-HEMA/CytoScan/issues
