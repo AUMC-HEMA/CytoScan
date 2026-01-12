@@ -6,42 +6,80 @@
 #'
 #' @return Heatmap
 #' @export
-plotHeatmap <- function(CS, featMethod, plotData){
-  if (plotData == "test"){
-    inputData <- CS$features$test[[featMethod]]
-  } else if (fiplotDatatData == "reference"){
-    inputData <- CS$features$reference[[featMethod]]
-  } else if (plotData == "all"){
-    inputData <- rbind(CS$features$test[[featMethod]], CS$features$ref[[featMethod]])
+plotHeatmap <- function(CS, featMethod, plotData = "test") {
+  
+  # --- Step 1: Select input features ---
+  test_data <- CS$features$test[[featMethod]]
+  n_test <- nrow(test_data)
+  
+  ref_data <- CS$features$reference[[featMethod]]
+  if (is.null(ref_data) || nrow(ref_data) == 0) {
+    ref_data <- NULL
+    n_ref <- 0
+  } else {
+    n_ref <- nrow(ref_data)
   }
   
-  # Construct dendogram for raw generated features
-  dend <- as.dendrogram(hclust(dist(inputData), method = "ward.D"))
+  if (plotData == "test") {
+    inputData <- test_data
+    outlier_flags <- if (!is.null(CS$outliers[[featMethod]])) {
+      factor(as.logical(CS$outliers[[featMethod]][rownames(test_data)]), levels = c(FALSE, TRUE))
+    } else {
+      factor(rep(FALSE, n_test), levels = c(FALSE, TRUE))
+    }
+  } else if (plotData == "reference") {
+    if (is.null(ref_data)) stop("Reference data not available")
+    inputData <- ref_data
+    outlier_flags <- factor(rep(FALSE, n_ref), levels = c(FALSE, TRUE))
+  } else if (plotData == "all") {
+    inputData <- rbind(test_data, ref_data)
+    outlier_flags <- factor(c(
+      if (!is.null(CS$outliers[[featMethod]])) as.logical(CS$outliers[[featMethod]][rownames(test_data)]) else rep(FALSE, n_test),
+      rep(FALSE, n_ref)
+    ), levels = c(FALSE, TRUE))
+  } else {
+    stop("plotData must be one of 'test', 'reference', 'all'")
+  }
   
-  # Standardize the features within each channel
+  # --- Step 2: Standardize per channel ---
   channels <- CS$metadata[[featMethod]]$channels
-  for (channel in channels){
+  for (channel in channels) {
     cols <- grep(channel, colnames(inputData), value = TRUE)
-    mat <- as.matrix(inputData[,cols])
-    inputData[,cols] <- (mat - mean(mat)) / sd(mat)
+    mat <- as.matrix(inputData[, cols])
+    inputData[, cols] <- (mat - mean(mat)) / sd(mat)
   }
   
-  # Get # features per channnel
-  split <- rep(1:length(channels), 
-               each = ncol(inputData) / length(channels))
-  # Create heatmap
+  # --- Step 3: Split columns by channel ---
+  n_cols_per_channel <- ncol(inputData) / length(channels)
+  split <- rep(1:length(channels), each = n_cols_per_channel)
+  
+  # --- Step 4: Row annotation for outliers ---
+  row_anno <- ComplexHeatmap::rowAnnotation(
+    Outlier = outlier_flags,
+    col = list(Outlier = c("FALSE" = "gray", "TRUE" = "red")),
+    show_annotation_name = TRUE
+  )
+  
+  # --- Step 5: Build heatmap ---
   g <- ComplexHeatmap::Heatmap(
     as.matrix(inputData),
-    cluster_rows = dend,    
-    cluster_columns = FALSE, 
-    column_split = split,    
-    show_column_names = FALSE, 
+    cluster_rows = as.dendrogram(hclust(dist(inputData), method = "ward.D")),
+    cluster_columns = FALSE,
+    column_split = split,
+    show_column_names = FALSE,
     show_row_names = FALSE,
     column_title = channels,
+    column_title_side = "top",
+    column_title_rot = 90,
+    column_title_gp = grid::gpar(fontsize = 10),
+    left_annotation = row_anno,
     heatmap_legend_param = list(title = "Z-score"),
-    row_dend_width = grid::unit(3, "cm"))
+    row_dend_width = grid::unit(3, "cm")
+  )
+  
   return(g)
 }
+
 
 
 #' Plot PCA
@@ -213,11 +251,11 @@ plotPCA <- function(CS, featMethod, fitData, plotData, PCx = 1, PCy = 2,
                      panel.border = ggplot2::element_rect(colour = "black", 
                                                           fill = NA))
     pGrid <- gridExtra::grid.arrange(yBar, PCAPlot, 
-                                   ggplot2::ggplot() + ggplot2::theme_void(), 
-                                   xBar,
-                                   ncol = 2,
-                                   heights = c(1, 0.35),
-                                   widths = c(0.35, 1))
+                                     ggplot2::ggplot() + ggplot2::theme_void(), 
+                                     xBar,
+                                     ncol = 2,
+                                     heights = c(1, 0.35),
+                                     widths = c(0.35, 1))
     return(pGrid)
   } else {
     return(PCAPlot)
@@ -247,6 +285,7 @@ aggregatePlotdata <- function(CS, plotData, channel, n=1000, color=NULL,
     data[[file]] <- df
   }
   data <- data.frame(dplyr::bind_rows(data), check.names = FALSE)
+  data$short_name <- basename(as.character(data$index))
   
   if (is.null(color)){
     data$group <- plotData
@@ -279,20 +318,31 @@ aggregatePlotdata <- function(CS, plotData, channel, n=1000, color=NULL,
 #' @import dplyr
 #' @export
 plotBoxplot <- function(CS, plotData, channel, n=1000, color=NULL,
-                        featMethod = NULL, nFiles = NULL){
-  data <- aggregatePlotdata(CS, plotData=plotData, channel=channel, color=color,
-                            featMethod=featMethod, nFiles=nFiles)
-  library(dplyr)
-  # Sort the data from low to high median
-  data <- data %>%
-    dplyr::group_by(index) %>%
-    dplyr::mutate(median_value = median(value)) %>%
-    dplyr::ungroup() %>%
-    dplyr::mutate(index = reorder(index, median_value))
+                        featMethod = NULL, nFiles = NULL) {
   
-  ggplot2::ggplot(data, ggplot2::aes(x = index, y = value, fill=group)) +
+  data <- aggregatePlotdata(CS, plotData=plotData, channel=channel, color=color,
+                            featMethod=featMethod, nFiles=nFiles) %>%
+    dplyr::mutate(short_name = basename(index))
+  
+  data$short_name <- factor(data$short_name,
+                            levels = data %>%
+                              dplyr::group_by(short_name) %>%
+                              dplyr::summarise(median_value = median(value), .groups="drop") %>%
+                              dplyr::arrange(median_value) %>%
+                              dplyr::pull(short_name))
+  
+  med  <- median(data$value, na.rm = TRUE)
+  iqr  <- IQR(data$value, na.rm = TRUE)
+  ymin <- med - 3 * iqr
+  ymax <- med + 3 * iqr
+  
+  ggplot2::ggplot(data, ggplot2::aes(x = short_name, y = value, fill = group)) +
     ggplot2::geom_boxplot(color = "black", outlier.shape = NA) +
+    ggplot2::coord_cartesian(ylim = c(ymin, ymax)) +
     ggplot2::theme_classic() +
-    ggplot2::labs(title = paste("Expression of", channel), x = "File", y = "") +
-    ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 90, vjust = 0.5, hjust=1))
+    ggplot2::labs(title = paste("Expression for", channel), x = "", y = "") +
+    ggplot2::theme(
+      axis.text.x = ggplot2::element_text(angle = 90, size = 8, hjust = 1),
+      plot.margin = ggplot2::margin(t = 5, r = 5, b = 80, l = 5)
+    )
 }

@@ -1,3 +1,4 @@
+
 #' Initialize CytoScan object
 #' 
 #' Function to initialize CytoScan workflow. Returns CytoScan object
@@ -14,7 +15,23 @@ CytoScan <- function(){
   return(CS)
 }
 
- 
+#' Initialize CytoScan object for spectral data
+#' 
+#' Function to initialize CytoScan workflow. Returns CytoScan object
+#' 
+#' @return Default initialized CytoScan object
+#' 
+#' @export
+CytoScan_spectral <- function(){
+  CS <- list()
+  class(CS) <- "CytoScan"
+  CS[["preprocessFunction"]] <- processInputSpectral
+  CS[["parallel"]] <- list("parallelVars" = c("channels", "CS", "readInput"),
+                           "parallelPackages" = c("flowCore"))
+  return(CS)
+}
+
+
 #' Add additional annotations for test data 
 #' 
 #' @param CS CytoScan object
@@ -52,17 +69,43 @@ processInput <- function(ff){
   spill <- ff@description$SPILL
   ff <- flowCore::compensate(ff, spill)
   ff <- flowCore::transform(ff, flowCore::transformList(colnames(spill), 
-                                            flowCore::arcsinhTransform(a = 0, 
-                                                                       b = 1/150, 
-                                                                       c = 0)))
+                                                        flowCore::arcsinhTransform(a = 0, 
+                                                                                   b = 1/150, 
+                                                                                   c = 0)))
   return(ff)
 }
+
+
+#' Custom preprocessing for spectral flow data
+#' 
+#' Applies arcsinh transformation to all channels. No compensation is done.
+#'
+#' @param ff A flowFrame object
+#' @return Transformed flowFrame
+processInputSpectral <- function(ff) {
+  channels <- colnames(ff@exprs)
+  
+  tf <- flowCore::transformList(
+    from = channels,
+    to   = channels,
+    tfun = lapply(channels, function(x) flowCore::arcsinhTransform(a = 0, b = 1/150, c = 0))
+  )
+  
+  ff <- flowCore::transform(ff, tf)
+  
+  # sync parameter metadata to exprs colnames
+  ff@parameters@data$name <- channels
+  
+  return(ff)
+}
+
+
 
 
 #' @export
 readInput <- function(CS, path, n = NULL){
   set.seed(42)
-  ff <- flowCore::read.FCS(path, which.lines = n)
+  ff <- flowCore::read.FCS(path, which.lines = n, truncate_max_range = FALSE)
   ff <- CS[["preprocessFunction"]](ff)
   return(ff)
 }
@@ -79,20 +122,20 @@ addData <- function(CS, input, type, read, reload, aggSize){
         if (read == TRUE){
           ff <- readInput(CS, path, CS$nAgg)
           CS$data[[type]][[path]] <- data.frame(ff@exprs, check.names = FALSE)
-          }
-        }
-      }
-    } else {
-      CS$paths[[type]] <- input
-      if (read == TRUE){
-        CS$aggSize <- aggSize
-        CS$nAgg <- ceiling(aggSize / length(input))
-        for (path in input){
-          ff <- readInput(CS, path, CS$nAgg)
-          CS$data[[type]][[path]] <- data.frame(ff@exprs, check.names = FALSE)
         }
       }
     }
+  } else {
+    CS$paths[[type]] <- input
+    if (read == TRUE){
+      CS$aggSize <- aggSize
+      CS$nAgg <- ceiling(aggSize / length(input))
+      for (path in input){
+        ff <- readInput(CS, path, CS$nAgg)
+        CS$data[[type]][[path]] <- data.frame(ff@exprs, check.names = FALSE)
+      }
+    }
+  }
   return(CS)
 }
 
@@ -176,3 +219,6 @@ Flag <- function(CS, featMethod, flagMethod, outlier_threshold=0.5,
   }
   return(CS)
 }
+
+
+
