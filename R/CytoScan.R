@@ -31,6 +31,21 @@ CytoScan_spectral <- function(){
   return(CS)
 }
 
+#' Initialize CytoScan object for spectral data
+#' 
+#' Function to initialize CytoScan workflow. Returns CytoScan object
+#' 
+#' @return Default initialized CytoScan object
+#' 
+#' @export
+CytoScan_CyTOF <- function(){
+  CS <- list()
+  class(CS) <- "CytoScan"
+  CS[["preprocessFunction"]] <- processInputCyTOF
+  CS[["parallel"]] <- list("parallelVars" = c("channels", "CS", "readInput"),
+                           "parallelPackages" = c("flowCore"))
+  return(CS)
+}
 
 #' Add additional annotations for test data 
 #' 
@@ -83,23 +98,73 @@ processInput <- function(ff){
 #' @param ff A flowFrame object
 #' @return Transformed flowFrame
 processInputSpectral <- function(ff) {
+  # Exclude scatter channels
+  scatter_patterns <- c("FSC", "SSC")
   channels <- colnames(ff@exprs)
+  marker_channels <- channels[!grepl(paste(scatter_patterns, collapse="|"), channels)]
   
+  # Apply arcsinh only to marker channels
   tf <- flowCore::transformList(
-    from = channels,
-    to   = channels,
-    tfun = lapply(channels, function(x) flowCore::arcsinhTransform(a = 0, b = 1/150, c = 0))
+    from = marker_channels,
+    to   = marker_channels,
+    tfun = lapply(marker_channels, function(x) flowCore::arcsinhTransform(a = 0, b = 1/150, c = 0))
   )
   
   ff <- flowCore::transform(ff, tf)
   
-  # sync parameter metadata to exprs colnames
-  ff@parameters@data$name <- channels
+  # Sync parameter metadata to exprs colnames
+  ff@parameters@data$name <- colnames(ff@exprs)
   
   return(ff)
 }
 
 
+#' Custom preprocessing for CyTOF data
+#'
+#' Applies arcsinh transformation (cofactor = 5) to biological channels only.
+#' No compensation or unmixing is performed.
+#'
+#' @param ff A flowFrame object
+#' @return Transformed flowFrame
+processInputCyTOF <- function(ff) {
+  
+  exprs <- ff@exprs
+  desc  <- ff@parameters@data$desc
+  names(desc) <- colnames(exprs)
+  
+  # Identify biological marker channels
+  exclude_patterns <- c(
+    "barcode",
+    "beads",
+    "BCKG",
+    "^Ir",
+    "^Time$",
+    "^Event_length$",
+    "^Center$",
+    "^Offset$",
+    "^Width$",
+    "^Residual$"
+  )
+  
+  marker_channels <- names(desc)[
+    !grepl(paste(exclude_patterns, collapse="|"), desc, ignore.case = TRUE) &
+      grepl("_", desc)
+  ]
+  
+  # arcsinh transform (CyTOF-standard)
+  tf <- flowCore::transformList(
+    from = marker_channels,
+    to   = marker_channels,
+    tfun = flowCore::arcsinhTransform(a = 0, b = 1/5, c = 0)
+  )
+  
+  ff <- flowCore::transform(ff, tf)
+  
+  # sync metadata
+  ff@parameters@data$name <- colnames(ff@exprs)
+  
+  return(ff)
+}
 
 
 #' @export
