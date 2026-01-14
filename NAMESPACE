@@ -2,6 +2,7 @@
 
 export(Bin)
 export(CytoScan)
+export(CytoScan_CyTOF)
 export(CytoScan_spectral)
 export(EMD)
 export(Fingerprint)

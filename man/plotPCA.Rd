@@ -7,8 +7,8 @@
 plotPCA(
   CS,
   featMethod,
-  fitData,
-  plotData,
+  fitData = "test",
+  plotData = "test",
   PCx = 1,
   PCy = 2,
   color = NULL,

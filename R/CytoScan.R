@@ -97,25 +97,27 @@ processInput <- function(ff){
 #'
 #' @param ff A flowFrame object
 #' @return Transformed flowFrame
-processInputSpectral <- function(ff) {
+processInputSpectral <- function(ff, transform = FALSE, cofactor = 150) {
+  
+  channels <- colnames(ff@exprs)
+  
   # Exclude scatter channels
   scatter_patterns <- c("FSC", "SSC")
-  channels <- colnames(ff@exprs)
-  marker_channels <- channels[!grepl(paste(scatter_patterns, collapse="|"), channels)]
+  marker_channels <- channels[!grepl(paste(scatter_patterns, collapse = "|"),
+                                     channels, ignore.case = TRUE)]
   
-  # Apply arcsinh only to marker channels
-  tf <- flowCore::transformList(
-    from = marker_channels,
-    to   = marker_channels,
-    tfun = lapply(marker_channels, function(x) flowCore::arcsinhTransform(a = 0, b = 1/150, c = 0))
-  )
+  if (transform) {
+    tf <- flowCore::transformList(
+      marker_channels,
+      flowCore::arcsinhTransform(a = 0, b = 1 / cofactor, c = 0)
+    )
+    ff <- flowCore::transform(ff, tf)
+  }
   
-  ff <- flowCore::transform(ff, tf)
-  
-  # Sync parameter metadata to exprs colnames
+  # Sync parameter metadata
   ff@parameters@data$name <- colnames(ff@exprs)
   
-  return(ff)
+  ff
 }
 
 

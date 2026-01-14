@@ -4,7 +4,7 @@
 \alias{processInputSpectral}
 \title{Custom preprocessing for spectral flow data}
 \usage{
-processInputSpectral(ff)
+processInputSpectral(ff, transform = FALSE, cofactor = 150)
 }
 \arguments{
 \item{ff}{A flowFrame object}
