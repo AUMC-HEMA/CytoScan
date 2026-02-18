@@ -152,11 +152,11 @@ addReferencedata <- function(CS, input, read = FALSE, reload = FALSE,
 #' @export
 #' @import mclust
 Flag <- function(CS, featMethod, flagMethod, outlier_threshold=0.5,
-                 novelty_threshold=0.05){
+                 novelty_threshold=0.05, ntrees=1000){
   testFeatures <- CS$features$test[[featMethod]]
   if (flagMethod == "outlier" | flagMethod == "outliers"){
     forest <- isotree::isolation.forest(testFeatures, sample_size = 1,
-                                        ntrees = 1000,
+                                        ntrees = ntrees,
                                         ndim = 1, seed = 42)
     scores <- stats::predict(forest, testFeatures)
     # Scores > 0.5 are most likely outliers according to the original paper
